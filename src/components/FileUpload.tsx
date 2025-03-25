@@ -34,17 +34,36 @@ export function FileUpload({ onFileLoad }: FileUploadProps) {
       const headers: string[] = [];
       const columnRefs: Record<string, string> = {};
       
+      // Create a map to store all column references, even empty ones
+      const allColumnRefs: Record<string, string> = {};
+      
+      // First, add all columns regardless of content
       for (let C = range.s.c; C <= range.e.c; C++) {
+        const colRef = getExcelColumnName(C);
+        const cellRef = `${colRef}1`;
         const cell = firstSheet[XLSX.utils.encode_cell({ r: 0, c: C })];
+        
+        // If the cell has a value, use it as the header
         if (cell && cell.v) {
           const header = cell.v.toString().trim();
           headers.push(header);
-          columnRefs[header] = `${getExcelColumnName(C)}1`;
+          columnRefs[header] = cellRef;
+        } else {
+          // For empty cells, create a placeholder header
+          const emptyHeader = `Column ${colRef}`;
+          headers.push(emptyHeader);
+          columnRefs[emptyHeader] = cellRef;
         }
+        
+        // Store the column reference for all columns
+        allColumnRefs[`Column ${colRef}`] = cellRef;
       }
 
-      // Convert sheet data to JSON
-      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: headers });
+      // Convert sheet data to JSON with all headers
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { 
+        header: headers,
+        defval: '' // Use empty string as default value for missing cells
+      });
 
       // Remove the header row from the data
       const dataWithoutHeader = jsonData.slice(1);
