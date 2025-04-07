@@ -1,10 +1,15 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { FileUpload } from './components/FileUpload';
 import { ColumnMapper } from './components/ColumnMapper';
 import { BeneficiaryList } from './components/BeneficiaryList';
 import { db } from './lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
-import { Save, Upload, List } from 'lucide-react';
+import { Save, Upload, List, Settings } from 'lucide-react';
+import { AuthProvider } from './contexts/AuthContext';
+import { TeamProvider } from './contexts/TeamContext';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+import { TeamManagementPage } from './components/team/TeamManagementPage';
+import { useTeam } from './contexts/TeamContext';
 
 interface BeneficiaryData {
   last_name?: string;
@@ -27,10 +32,12 @@ interface BeneficiaryData {
   target_sector?: string;
   sub_category?: string;
   civil_status?: string;
+  team_id?: string; 
+  [key: string]: string | number | undefined; 
 }
 
-function App() {
-  const [activeTab, setActiveTab] = useState<'import' | 'list'>('import');
+function AppContent() {
+  const [activeTab, setActiveTab] = useState<'import' | 'list' | 'team'>('import');
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [mappings, setMappings] = useState<Record<string, string>>({});
@@ -39,6 +46,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [columnRefs, setColumnRefs] = useState<Record<string, string>>({});
+  const { currentTeam } = useTeam();
 
   const handleFileLoad = (fileData: any[], sheets: string[], refs: Record<string, string>) => {
     setData(fileData);
@@ -54,13 +62,23 @@ function App() {
   };
 
   const handleSave = async () => {
+    if (!currentTeam) {
+      setMessage({ 
+        type: 'error', 
+        text: 'Please select or create a team before importing data.' 
+      });
+      return;
+    }
+
     setIsLoading(true);
     setMessage(null);
 
     try {
       const beneficiariesRef = collection(db, 'beneficiaries');
       const transformedData = data.map(row => {
-        const beneficiary: BeneficiaryData = {};
+        const beneficiary: BeneficiaryData = {
+          team_id: currentTeam.id 
+        };
         Object.entries(mappings).forEach(([excelColumn, dbField]) => {
           if (dbField && row[excelColumn] !== undefined) {
             if (dbField === 'amount') {
@@ -73,7 +91,6 @@ function App() {
         return beneficiary;
       });
 
-      // Use batch write for better performance
       const batchSize = 500;
       for (let i = 0; i < transformedData.length; i += batchSize) {
         const batch = transformedData.slice(i, i + batchSize);
@@ -81,7 +98,6 @@ function App() {
       }
 
       setMessage({ type: 'success', text: 'Beneficiary data imported successfully!' });
-      // Clear the form after successful import
       setData([]);
       setColumns([]);
       setMappings({});
@@ -98,6 +114,19 @@ function App() {
       setIsLoading(false);
     }
   };
+
+  if (!currentTeam && activeTab !== 'team') {
+    return (
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="bg-yellow-50 p-4 rounded-md text-yellow-700 mb-4">
+            Please select or create a team to continue.
+          </div>
+          <TeamManagementPage />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -128,6 +157,17 @@ function App() {
               >
                 <List className="w-5 h-5 mr-2" />
                 View List
+              </button>
+              <button
+                onClick={() => setActiveTab('team')}
+                className={`py-4 px-6 inline-flex items-center border-b-2 font-medium text-sm ${
+                  activeTab === 'team'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Settings className="w-5 h-5 mr-2" />
+                Team Settings
               </button>
             </nav>
           </div>
@@ -182,13 +222,27 @@ function App() {
                   </div>
                 )}
               </div>
+            ) : activeTab === 'list' ? (
+              <BeneficiaryList teamId={currentTeam?.id} />
             ) : (
-              <BeneficiaryList />
+              <TeamManagementPage />
             )}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <TeamProvider>
+        <ProtectedRoute>
+          <AppContent />
+        </ProtectedRoute>
+      </TeamProvider>
+    </AuthProvider>
   );
 }
 

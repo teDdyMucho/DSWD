@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, getDocs, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, deleteDoc, doc, updateDoc, query, where } from 'firebase/firestore';
 import { Download, ChevronUp, ChevronDown, Trash2, Copy, CheckSquare, Edit2, Save, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -25,7 +25,13 @@ interface BeneficiaryData {
   target_sector?: string;
   sub_category?: string;
   civil_status?: string;
+  team_id?: string;
   docId?: string;
+  [key: string]: string | number | undefined;
+}
+
+interface BeneficiaryListProps {
+  teamId?: string;
 }
 
 type SortDirection = 'asc' | 'desc' | null;
@@ -92,7 +98,7 @@ const convertMonthToNumber = (month: string | undefined): string => {
   return normalizedMonth;
 };
 
-export function BeneficiaryList() {
+export function BeneficiaryList({ teamId }: BeneficiaryListProps) {
   const [beneficiaries, setBeneficiaries] = useState<BeneficiaryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,16 +111,29 @@ export function BeneficiaryList() {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
-    loadBeneficiaries();
-  }, []);
+    if (teamId) {
+      loadBeneficiaries();
+    } else {
+      setBeneficiaries([]);
+      setIsLoading(false);
+    }
+  }, [teamId]);
 
   const loadBeneficiaries = async () => {
+    if (!teamId) return;
+    
     try {
+      setIsLoading(true);
       const beneficiariesRef = collection(db, 'beneficiaries');
-      const snapshot = await getDocs(beneficiariesRef);
+      
+      // Query beneficiaries for the current team
+      const beneficiariesQuery = query(beneficiariesRef, where('team_id', '==', teamId));
+      const snapshot = await getDocs(beneficiariesQuery);
+      
       const data = snapshot.docs
         .map(doc => ({ ...doc.data() as BeneficiaryData, docId: doc.id }))
         .filter(beneficiary => !isRowEmpty(beneficiary));
+        
       setBeneficiaries(data);
       setError(null);
     } catch (err) {
@@ -135,20 +154,28 @@ export function BeneficiaryList() {
   });
 
   const handleClearData = async () => {
-    if (!window.confirm('Are you sure you want to clear all beneficiary data? This action cannot be undone.')) {
+    if (!teamId) return;
+    
+    if (!window.confirm('Are you sure you want to clear all beneficiary data for this team? This action cannot be undone.')) {
       return;
     }
+    
     setIsClearing(true);
     setError(null);
+    
     try {
       const beneficiariesRef = collection(db, 'beneficiaries');
-      const snapshot = await getDocs(beneficiariesRef);
+      const beneficiariesQuery = query(beneficiariesRef, where('team_id', '==', teamId));
+      const snapshot = await getDocs(beneficiariesQuery);
+      
       const batchSize = 500;
       const docs = snapshot.docs;
+      
       for (let i = 0; i < docs.length; i += batchSize) {
         const batch = docs.slice(i, Math.min(docs.length, i + batchSize));
         await Promise.all(batch.map(doc => deleteDoc(doc.ref)));
       }
+      
       setBeneficiaries([]);
       setSort({ column: '', direction: null });
     } catch (err) {
